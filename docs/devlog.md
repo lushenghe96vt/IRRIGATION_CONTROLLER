@@ -18,3 +18,7 @@
 07/02/2025
 - Started working on moisture sensors
 - Configured moisture sensor raw readings
+
+07/03/2025
+- implemented sensor class structure
+- began on http transmission
