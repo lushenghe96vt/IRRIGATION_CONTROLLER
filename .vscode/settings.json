@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "sensor.h": "c"
+        "sensor.h": "c",
+        "http_server.h": "c"
     }
 }

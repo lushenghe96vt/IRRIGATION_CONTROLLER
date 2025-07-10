@@ -1,11 +1,12 @@
 #include "sensor.h"
 
 // initialization
-void moisture_sensor_init(MoistureSensor *sensor, adc1_channel_t channel, int gpio_power){
+void moisture_sensor_init(MoistureSensor *sensor, adc1_channel_t channel, int gpio_power, int id){
     sensor->channel = channel;
     sensor->gpio_power = gpio_power;
     sensor->raw_level = 0;
     sensor->moisture_level = 0.0f;
+    sensor->id = id;
 
     gpio_set_direction(sensor->gpio_power, GPIO_MODE_OUTPUT);
     adc1_config_width(ADC_WIDTH_BIT_12);  // 12-bit: values from 0–4095
@@ -47,7 +48,7 @@ void moisture_sensor_update(MoistureSensor *sensor){
 // For wireless communication
 const char* moisture_sensor_as_json(MoistureSensor *sensor){ // add battery level and timestamps later
     static char json_buffer[128];
-    snprintf(json_buffer, sizeof(json_buffer), "{\"channel\":%d,\"gpio_power\":%d,\"gpio_relay\":%d,\"raw_level\":%d,\"moisture_level\":%.2f}",
-             sensor->channel, sensor->gpio_power, sensor->gpio_relay, sensor->raw_level, sensor->moisture_level);
+    snprintf(json_buffer, sizeof(json_buffer), "{\"id\":%d,\"channel\":%d,\"gpio_power\":%d,\"raw_level\":%d,\"moisture_level\":%.2f}",
+             sensor->id, sensor->channel, sensor->gpio_power, sensor->raw_level, sensor->moisture_level);
     return json_buffer;
 }
