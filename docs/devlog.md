@@ -22,3 +22,21 @@
 07/03/2025
 - implemented sensor class structure
 - began on http transmission
+
+07/04/2025
+- development in wifi transmission
+- could not get anything to connect to home wifi
+
+07/07/2025
+- resolved connection error, but json parsing is wrong
+- server sends undefined errors when json payload is correctly formatted
+
+07/08/2025
+- completely reorganized codebase to feature two different sub repos for main controller and sensors
+- nothing worked so reverted to previous state
+
+07/10/2025
+- successfully set up server on main board to recieve posts from home wifi
+- began sensor node posts directly to main board
+- set up new repo for sensor node code for simplicity, IRRIGATION_SENSOR
+- renamed repo from WATERINGSYSTEM to IRRIGATION_CONTROLLER 
