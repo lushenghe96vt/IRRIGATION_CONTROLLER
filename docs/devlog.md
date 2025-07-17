@@ -40,3 +40,9 @@
 - began sensor node posts directly to main board
 - set up new repo for sensor node code for simplicity, IRRIGATION_SENSOR
 - renamed repo from WATERINGSYSTEM to IRRIGATION_CONTROLLER 
+
+07/17/2025
+- completed IRRIGATION_SENSOR to successfully post to server
+- ran into non static ip problem
+- could fix issue manually on bootup every time or could switch to a different way to connect to server
+- maybe run own wifi server on board?
