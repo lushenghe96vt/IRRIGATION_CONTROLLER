@@ -8,12 +8,12 @@
         {
             "name": "PlatformIO",
             "includePath": [
-                "c:/WateringSystem/include",
-                "c:/WateringSystem/src",
+                "c:/IRRIGATION_CONTROLLER/include",
+                "c:/IRRIGATION_CONTROLLER/src",
                 "C:/PlatformIO/packages/framework-espidf/components/xtensa/esp32/include",
                 "C:/PlatformIO/packages/framework-espidf/components/xtensa/include",
                 "C:/PlatformIO/packages/framework-espidf/components/xtensa/deprecated_include",
-                "C:/WateringSystem/.pio/build/esp32dev/config",
+                "C:/IRRIGATION_CONTROLLER/.pio/build/esp32dev/config",
                 "C:/PlatformIO/packages/framework-espidf/components/newlib/platform_include",
                 "C:/PlatformIO/packages/framework-espidf/components/freertos/config/include",
                 "C:/PlatformIO/packages/framework-espidf/components/freertos/config/include/freertos",
@@ -175,12 +175,12 @@
             "browse": {
                 "limitSymbolsToIncludedHeaders": true,
                 "path": [
-                    "c:/WateringSystem/include",
-                    "c:/WateringSystem/src",
+                    "c:/IRRIGATION_CONTROLLER/include",
+                    "c:/IRRIGATION_CONTROLLER/src",
                     "C:/PlatformIO/packages/framework-espidf/components/xtensa/esp32/include",
                     "C:/PlatformIO/packages/framework-espidf/components/xtensa/include",
                     "C:/PlatformIO/packages/framework-espidf/components/xtensa/deprecated_include",
-                    "C:/WateringSystem/.pio/build/esp32dev/config",
+                    "C:/IRRIGATION_CONTROLLER/.pio/build/esp32dev/config",
                     "C:/PlatformIO/packages/framework-espidf/components/newlib/platform_include",
                     "C:/PlatformIO/packages/framework-espidf/components/freertos/config/include",
                     "C:/PlatformIO/packages/framework-espidf/components/freertos/config/include/freertos",
