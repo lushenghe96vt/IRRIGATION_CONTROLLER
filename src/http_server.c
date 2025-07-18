@@ -34,10 +34,10 @@ esp_err_t moisture_post_handler(httpd_req_t * req) {
     }
     int id = sensor_id->valueint;
     cJSON *raw_level = cJSON_GetObjectItem(root, "raw_level");
-    cJSON *moisture_level = cJSON_GetObjectItem(root, "moisture_level");
+    cJSON *dryness_level = cJSON_GetObjectItem(root, "dryness_level");
 
     // error handling for incorrect types
-    if (!cJSON_IsNumber(raw_level) || !cJSON_IsNumber(moisture_level)) {
+    if (!cJSON_IsNumber(raw_level) || !cJSON_IsNumber(dryness_level)) {
         ESP_LOGE(TAG, "Invalid JSON fields");
         cJSON_Delete(root);
         return ESP_FAIL;
@@ -45,9 +45,9 @@ esp_err_t moisture_post_handler(httpd_req_t * req) {
 
     // update sensor
     sensors[id - 1].raw_level = raw_level->valueint;
-    sensors[id - 1].moisture_level = (float)moisture_level->valuedouble;
+    sensors[id - 1].dryness_level = (float)dryness_level->valuedouble;
 
-    ESP_LOGI(TAG, "Updated sensor[%d]: raw=%d, moist=%.2f", id - 1, sensors[id - 1].raw_level, sensors[id - 1].moisture_level);
+    ESP_LOGI(TAG, "Updated sensor[%d]: raw=%d, moist=%.2f", id - 1, sensors[id - 1].raw_level, sensors[id - 1].dryness_level);
     cJSON_Delete(root);
     httpd_resp_send(req, "OK", 2);
     return ESP_OK;

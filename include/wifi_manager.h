@@ -8,4 +8,4 @@
 
 // initialize Wifi for both boards
 
-void wifi_init(const char *ssid, const char *password);
+void wifi_init_ap();

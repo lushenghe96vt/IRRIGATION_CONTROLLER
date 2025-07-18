@@ -16,9 +16,6 @@
 // GPIO pins for ADC input: 32 ADC1_CHANNEL_4, 33 ADC1_CHANNEL_5, 34 ADC1_CHANNEL_6, 35 ADC1_CHANNEL_7
 #define MOISTURE_IN_D32 ADC1_CHANNEL_4
 
-#define WIFI_SSID     "BELL878"
-#define WIFI_PASSWORD "CD4643CD6675"
-
 void app_main(void){
     /*
     esp_rom_gpio_pad_select_gpio(MOISTURE_OUT_D4);
@@ -46,7 +43,7 @@ void app_main(void){
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.uri_match_fn = httpd_uri_match_wildcard; // Use wildcard matching for URI handlers
 
-    wifi_init("BELL878", "CD4643CD6675"); // replace with wifi credentials
+    wifi_init_ap();
     start_http_server();
 
 

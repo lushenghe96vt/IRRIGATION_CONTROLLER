@@ -5,7 +5,7 @@ void moisture_sensor_init(MoistureSensor *sensor, adc1_channel_t channel, int gp
     sensor->channel = channel;
     sensor->gpio_power = gpio_power;
     sensor->raw_level = 0;
-    sensor->moisture_level = 0.0f;
+    sensor->dryness_level = 0.0f;
     sensor->id = id;
 
     gpio_set_direction(sensor->gpio_power, GPIO_MODE_OUTPUT);
@@ -26,7 +26,7 @@ int moisture_sensor_get_raw(MoistureSensor *sensor){
     return sensor->raw_level;
 }
 float moisture_sensor_get_percent(MoistureSensor *sensor){
-    return sensor->moisture_level;
+    return sensor->dryness_level;
 }
 void moisture_sensor_update(MoistureSensor *sensor){
     moisture_sensor_power_on(sensor);
@@ -36,10 +36,10 @@ void moisture_sensor_update(MoistureSensor *sensor){
     sensor->raw_level = adc1_get_raw(sensor->channel); 
     if(sensor->raw_level < 0) { // handles error case
         sensor->raw_level = 0;
-        sensor->moisture_level = 0.0f;
+        sensor->dryness_level = 0.0f;
     }
     else {
-        sensor->moisture_level = (float)sensor->raw_level / 4095.0f; // converts to percentage assuming 12-bit ADC resolution
+        sensor->dryness_level = (float)sensor->raw_level / 4095.0f; // converts to percentage assuming 12-bit ADC resolution
     }
 
     moisture_sensor_power_off(sensor);
@@ -48,7 +48,7 @@ void moisture_sensor_update(MoistureSensor *sensor){
 // For wireless communication
 const char* moisture_sensor_as_json(MoistureSensor *sensor){ // add battery level and timestamps later
     static char json_buffer[128];
-    snprintf(json_buffer, sizeof(json_buffer), "{\"id\":%d,\"channel\":%d,\"gpio_power\":%d,\"raw_level\":%d,\"moisture_level\":%.2f}",
-             sensor->id, sensor->channel, sensor->gpio_power, sensor->raw_level, sensor->moisture_level);
+    snprintf(json_buffer, sizeof(json_buffer), "{\"id\":%d,\"channel\":%d,\"gpio_power\":%d,\"raw_level\":%d,\"dryness_level\":%.2f}",
+             sensor->id, sensor->channel, sensor->gpio_power, sensor->raw_level, sensor->dryness_level);
     return json_buffer;
 }

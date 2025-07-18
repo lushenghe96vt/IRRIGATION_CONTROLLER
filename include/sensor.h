@@ -9,7 +9,7 @@ typedef struct{
     adc1_channel_t channel;  // ADC channel for moisture sensor
     int gpio_power;          // GPIO pin to power the moisture sensor
     int raw_level;           // Raw moisture level reading
-    float moisture_level;    // Processed moisture level (0.0 to 1.0)
+    float dryness_level;    // Processed moisture level (0.0 to 1.0)
 
 } MoistureSensor;
 
