@@ -46,3 +46,9 @@
 - ran into non static ip problem
 - could fix issue manually on bootup every time or could switch to a different way to connect to server
 - maybe run own wifi server on board?
+
+07/18/2025
+- reconfigured main board to act as AP instead of using home wifi network, also fixed IP changing issue as esp32 uses default IP 192.168.4.2
+- changed moisture_level to dryness_level so that it makes more sense
+- need to get rid of magic numbers and find a way to make a web dashboard, do not want to mess with cloud stuff
+
