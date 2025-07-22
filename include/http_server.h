@@ -4,5 +4,6 @@
 #include "esp_log.h"
 #include "cJSON.h"
 #include "sensor.h"
+#include "SensorContext.h"
 
-void start_http_server(void);
+void start_http_server(SensorContext *ctx);

@@ -1,6 +1,10 @@
 {
     "files.associations": {
         "sensor.h": "c",
-        "http_server.h": "c"
+        "http_server.h": "c",
+        "wifi_manager.h": "c",
+        "cjson.h": "c",
+        "param.h": "c",
+        "esp_http_server.h": "c"
     }
 }

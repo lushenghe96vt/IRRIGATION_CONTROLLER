@@ -52,3 +52,10 @@
 - changed moisture_level to dryness_level so that it makes more sense
 - need to get rid of magic numbers and find a way to make a web dashboard, do not want to mess with cloud stuff
 
+07/21/2025
+- cleaned up main.c in controller
+- adjusted sensors array to live inside a new struct sensorContext so that it can stay in main and can be passed as argument into http handler
+
+07/22/2025
+- powered sensor nodes with batteries and successfully transmitted data
+- started development of webserver, having troubles with uploading data ever x amount of seconds from control board to webserver

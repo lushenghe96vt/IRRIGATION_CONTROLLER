@@ -3,10 +3,11 @@
 
 #define TAG "HTTP_SERVER"
 
-#define num_sensors 2 // number of sensors used, can be changed as needed
-static MoistureSensor sensors[num_sensors]; // number of sensors used
-
 esp_err_t moisture_post_handler(httpd_req_t * req) {
+    SensorContext *ctx = (SensorContext *)req->user_ctx;
+    MoistureSensor *sensors = ctx->sensors;
+    int num_sensors = ctx->num_sensors;
+
     // getting json data
     char buf[128]; 
     int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
@@ -46,14 +47,14 @@ esp_err_t moisture_post_handler(httpd_req_t * req) {
     // update sensor
     sensors[id - 1].raw_level = raw_level->valueint;
     sensors[id - 1].dryness_level = (float)dryness_level->valuedouble;
-
     ESP_LOGI(TAG, "Updated sensor[%d]: raw=%d, moist=%.2f", id - 1, sensors[id - 1].raw_level, sensors[id - 1].dryness_level);
+
     cJSON_Delete(root);
     httpd_resp_send(req, "OK", 2);
     return ESP_OK;
 }
 
-void start_http_server(void) {
+void start_http_server(SensorContext *ctx) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     httpd_handle_t server = NULL;
 
@@ -62,7 +63,7 @@ void start_http_server(void) {
             .uri = "/moisture", // posts to ip_address/moisture
             .method = HTTP_POST,
             .handler = moisture_post_handler,
-            .user_ctx = NULL
+            .user_ctx = ctx
         };
         httpd_register_uri_handler(server, &moisture_uri);
     }
