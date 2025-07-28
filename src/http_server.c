@@ -9,7 +9,7 @@ esp_err_t moisture_post_handler(httpd_req_t * req) {
     int num_sensors = ctx->num_sensors;
 
     // getting json data
-    char buf[128]; 
+    char buf[256]; 
     int ret = httpd_req_recv(req, buf, MIN(req->content_len, sizeof(buf) - 1));
     if (ret <= 0){ 
         ESP_LOGE(TAG, "No data to post");
@@ -54,17 +54,87 @@ esp_err_t moisture_post_handler(httpd_req_t * req) {
     return ESP_OK;
 }
 
-void start_http_server(SensorContext *ctx) {
+esp_err_t web_index_handler(httpd_req_t *req)
+{
+    const char *html_response =
+        "<!DOCTYPE html>"
+        "<html>"
+        "<head><title>ESP32 Moisture Dashboard</title></head>"
+        "<body>"
+        "<h1>ESP32 Moisture Sensor Data</h1>"
+        "<pre id=\"data\">Loading moisture data...</pre>"
+        "<script>"
+        "function fetchData() {"
+        "  fetch('/data')"
+        "    .then(response => response.json())"
+        "    .then(data => {"
+        "      let text = '';"
+        "      data.forEach(sensor => {"
+        "        text += `Sensor ${sensor.id} - Raw: ${sensor.raw_level}, Dryness Level: ${sensor.dryness_level}\\n`;"
+        "      });"
+        "      document.getElementById('data').textContent = text;"
+        "    })"
+        "    .catch(err => console.error('Fetch error:', err));"
+        "}"
+        "setInterval(fetchData, 1000);"
+        "fetchData();"
+        "</script>"
+        "</body>"
+        "</html>";
+
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, html_response, HTTPD_RESP_USE_STRLEN);
+}
+
+esp_err_t web_data_handler(httpd_req_t *req) {
+    SensorContext *ctx = (SensorContext *)req->user_ctx;
+
+    // Assuming you have NUM_SENSORS sensors
+    static char json_buf[256];
+    snprintf(json_buf, sizeof(json_buf),
+        "[{\"id\":%d,\"raw_level\":%d,\"dryness_level\":%.2f},"
+        "{\"id\":%d,\"raw_level\":%d,\"dryness_level\":%.2f}]",
+        ctx->sensors[0].id, ctx->sensors[0].raw_level, ctx->sensors[0].dryness_level,
+        ctx->sensors[1].id, ctx->sensors[1].raw_level, ctx->sensors[1].dryness_level
+    );
+
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_send(req, json_buf, HTTPD_RESP_USE_STRLEN);
+    return ESP_OK;
+}
+
+esp_err_t start_http_server(SensorContext *ctx) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     httpd_handle_t server = NULL;
 
-    if (httpd_start(&server, &config) == ESP_OK) {
-        httpd_uri_t moisture_uri = {
-            .uri = "/moisture", // posts to ip_address/moisture
-            .method = HTTP_POST,
-            .handler = moisture_post_handler,
-            .user_ctx = ctx
-        };
-        httpd_register_uri_handler(server, &moisture_uri);
+    if (httpd_start(&server, &config) != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start HTTP server");
+        return ESP_FAIL;
     }
+
+    httpd_uri_t moisture_uri = {
+        .uri = "/moisture", // posts to ip_address/moisture
+        .method = HTTP_POST,
+        .handler = moisture_post_handler,
+        .user_ctx = ctx
+     };
+    httpd_register_uri_handler(server, &moisture_uri);
+
+    httpd_uri_t index_uri = {
+        .uri       = "/",
+        .method    = HTTP_GET,
+        .handler   = web_index_handler,
+        .user_ctx  = ctx
+    };
+    httpd_register_uri_handler(server, &index_uri);
+
+    httpd_uri_t data_endpoint = {
+    .uri       = "/data",
+    .method    = HTTP_GET,
+    .handler   = web_data_handler,
+    .user_ctx  = ctx
+    };
+    httpd_register_uri_handler(server, &data_endpoint);
+    
+    return ESP_OK;
 }

@@ -59,3 +59,11 @@
 07/22/2025
 - powered sensor nodes with batteries and successfully transmitted data
 - started development of webserver, having troubles with uploading data ever x amount of seconds from control board to webserver
+
+07/27/2025
+- changed start_http_server to start both servers, one for HTTP_POST (send moisture data) and one for HTTP_GET (recieve moisture data and send to webserver)
+- works but method is very crude, polls the /data server every second for json, and also not scaleable since the html is hardcoded, could change to websockets?
+- web server up and running
+- need to get both boards running on battery then figure out valve circuit next
+- found an issue for when I start the AP after the sensors, the server does not recieve any data
+- also need to test both sensors at the same time to ensure they work independantly

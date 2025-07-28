@@ -38,10 +38,9 @@ void app_main(void){
         nvs_flash_erase();
         ret = nvs_flash_init();
     }
-    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+
     wifi_init_ap();
     start_http_server(&ctx);
-
 
     while(1){
         /*
@@ -50,7 +49,7 @@ void app_main(void){
         moisture_level_1 = moisture_sensor_get_percent(&sensor1);
         printf("Moisture Level 1: %f, Raw Level 1: %d\n", moisture_level_1, raw_level_1);
         */
-        printf("Moisture Level 1: %f, Raw Level 1: %d\n", sensors[0].dryness_level, sensors[0].raw_level);
+        printf("Dryness Level 1: %f, Raw Level 1: %d\n", sensors[0].dryness_level, sensors[0].raw_level);
         vTaskDelay(pdMS_TO_TICKS(1000)); // delay for 1 second
     }
 }
