@@ -39,11 +39,11 @@ void app_main(void){
         ret = nvs_flash_init();
     }
 
-    wifi_init_ap();
+    wifi_init_ap(); // default ip: 192.168.4.1
     start_http_server(&ctx);
 
     while(1){
-        /*
+         /*
         moisture_sensor_update(&sensor1);
         raw_level_1 = moisture_sensor_get_raw(&sensor1);
         moisture_level_1 = moisture_sensor_get_percent(&sensor1);

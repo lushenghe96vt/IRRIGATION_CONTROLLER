@@ -66,4 +66,13 @@
 - web server up and running
 - need to get both boards running on battery then figure out valve circuit next
 - found an issue for when I start the AP after the sensors, the server does not recieve any data
-- also need to test both sensors at the same time to ensure they work independantly
+- also need to test both sensors at the same time to ensure they work independantly'
+
+08/11/2025
+- ordered parts for valve control
+- changed circuit for valve
+- added boost converters and ditched 12V battery design
+- still need to recieve parts and test if battery charging works
+- then need to actually turn on valve
+- then right control logic for valve
+- also need to refine http webserver, make data transfer more secure and add 2 way communication with controls, look into websockets

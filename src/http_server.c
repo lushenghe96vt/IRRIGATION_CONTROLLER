@@ -88,8 +88,6 @@ esp_err_t web_index_handler(httpd_req_t *req)
 
 esp_err_t web_data_handler(httpd_req_t *req) {
     SensorContext *ctx = (SensorContext *)req->user_ctx;
-
-    // Assuming you have NUM_SENSORS sensors
     static char json_buf[256];
     snprintf(json_buf, sizeof(json_buf),
         "[{\"id\":%d,\"raw_level\":%d,\"dryness_level\":%.2f},"

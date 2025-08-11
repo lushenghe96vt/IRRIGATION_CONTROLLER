@@ -17,6 +17,7 @@ Core Components:
 - Buck converter (11.1V to 5V or 3V)
 - 12V solenoid valve - https://www.amazon.ca/gp/product/B07MY7D1GT/ref=ox_sc_act_title_1?smid=A1M8CQW56LXQ91&th=1
 - 5V relay module - https://www.amazon.ca/gp/product/B097QSV8BN/ref=ewc_pr_img_1?smid=A1A5OX27AT43GF&psc=1
+- 3.3V to 5V boost converter - https://www.amazon.ca/DAOKI-Converter-Module-Step-Up-Voltage/dp/B08M2YVQYQ, could buy this instead so we can skip out of the 12V battery setup entirely? Worried about battery running out though idk the actual power consumption of the valve - https://www.amazon.ca/DAOKI-Converter-Voltage-Regulator-Ardunio/dp/B083DN28HW
 
 Additional Components:
 - Weather proof cases
