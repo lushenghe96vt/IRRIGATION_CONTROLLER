@@ -76,3 +76,14 @@
 - then need to actually turn on valve
 - then right control logic for valve
 - also need to refine http webserver, make data transfer more secure and add 2 way communication with controls, look into websockets
+
+08/13/2025
+- built valve circuit
+- started solar panel integration
+
+08/14/2025
+- updated valve control logic
+- included freertos functions and queue to recieve and send data
+- updated http_server.c to implement freertos and to prepare it for websockets
+- found bug in sensor code, it only attempts to connect to AP wifi once on bootup and never again, must fix as well as refine the sensor code to match the controller code
+
