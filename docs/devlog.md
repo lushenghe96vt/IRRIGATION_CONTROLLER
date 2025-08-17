@@ -94,4 +94,5 @@
 - need to figure out a new way to power boards, with usb c battery now, nevermind fixed it used 3v3 port instead of VIN so the board powers now. Also the driver circuit was messed up and now switched to 3v3 isntead of using VIN to power relay. Now entire configuration works
 - now ready for websockets
 - need to re order wires?
+- need to reconfigure output to relay from 3V3 to a gpio output pin in order to power board with battery in future
 
