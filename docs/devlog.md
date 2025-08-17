@@ -87,3 +87,11 @@
 - updated http_server.c to implement freertos and to prepare it for websockets
 - found bug in sensor code, it only attempts to connect to AP wifi once on bootup and never again, must fix as well as refine the sensor code to match the controller code
 
+08/16/2025
+- updated all sensor node logic main.c and wifi initialization
+- updated dryness threshoolds in controller main and main control loop Hz
+- encountered a weird bug where sensor does not work on battery anymore, even reverting back to the old sensor code, the battery does not work anymore does not connect to AP
+- need to figure out a new way to power boards, with usb c battery now, nevermind fixed it used 3v3 port instead of VIN so the board powers now. Also the driver circuit was messed up and now switched to 3v3 isntead of using VIN to power relay. Now entire configuration works
+- now ready for websockets
+- need to re order wires?
+

@@ -50,8 +50,8 @@ SemaphoreHandle_t g_sensors_mutex = NULL;
 
 // valve control
 static const char *TAG = "APP";
-static float g_thresh_low = 0.10f; // open when average dips below 10%
-static float g_thresh_high = 0.25f; // open when average rises above 25% -----------experimental values-------------
+static float g_thresh_low = 0.25f; // open when average dips below 10%
+static float g_thresh_high = 0.45f; // open when average rises above 25% -----------experimental values-------------
 static bool  g_valve_open = false;
 
 static inline void valve_set(bool open){
@@ -81,7 +81,7 @@ static void control_task(void *arg) {
     gpio_set_direction(RELAY_OUT_D2, GPIO_MODE_OUTPUT);
     valve_set(false);
 
-    const TickType_t period = pdMS_TO_TICKS(1000); // 1 Hz control loop
+    const TickType_t period = pdMS_TO_TICKS(5000); // 5 hz control loop
     while (1) {
         vTaskDelay(period);
 
@@ -102,7 +102,7 @@ static void control_task(void *arg) {
 
 // log task
 static void log_task(void *arg) {
-    const TickType_t every = pdMS_TO_TICKS(1000);
+    const TickType_t every = pdMS_TO_TICKS(5000);
     while (1) {
         vTaskDelay(every);
         xSemaphoreTake(g_sensors_mutex, portMAX_DELAY);
