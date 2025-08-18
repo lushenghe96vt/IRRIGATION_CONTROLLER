@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <inttypes.h> // for PRIu32, unsigned long int format specifier
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -55,6 +56,13 @@ static float g_thresh_low = 0.25f; // open when average dips below 10%
 static float g_thresh_high = 0.45f; // open when average rises above 25% -----------experimental values-------------
 static bool  g_valve_open = false;
 
+// manual override
+static SemaphoreHandle_t g_ctrl_mutex;
+static bool g_manual_active = false;
+static bool g_manual_open   = false;
+static uint32_t g_manual_until_ms = 0;
+
+// valve control helper
 static inline void valve_set(bool open){
     //gpio_set_direction(RELAY_POWER_D5, GPIO_MODE_OUTPUT);
     gpio_set_direction(RELAY_OUT_D2, GPIO_MODE_OUTPUT);
@@ -63,6 +71,26 @@ static inline void valve_set(bool open){
     gpio_set_level(RELAY_OUT_D2, open ? 1 : 0);
     g_valve_open = open;
     ESP_LOGI(TAG, "Valve -> %s", open ? "OPEN" : "CLOSED");
+}
+
+// manual override helper
+void control_set_manual(bool on, uint32_t seconds) {
+    uint32_t now = (uint32_t)esp_log_timestamp();
+    if (!g_ctrl_mutex) g_ctrl_mutex = xSemaphoreCreateMutex();
+    xSemaphoreTake(g_ctrl_mutex, portMAX_DELAY);
+    g_manual_active   = true;
+    g_manual_open     = on;
+    g_manual_until_ms = now + seconds * 1000u;
+    xSemaphoreGive(g_ctrl_mutex);
+    ESP_LOGI("APP", "Manual %s for%" PRIu32 " s", on ? "ON" : "OFF", seconds);
+}
+
+void control_set_auto(void) {
+    if (!g_ctrl_mutex) g_ctrl_mutex = xSemaphoreCreateMutex();
+    xSemaphoreTake(g_ctrl_mutex, portMAX_DELAY);
+    g_manual_active = false;
+    xSemaphoreGive(g_ctrl_mutex);
+    ESP_LOGI("APP", "Auto mode");
 }
 
 // ingest task
@@ -91,7 +119,29 @@ static void control_task(void *arg) {
     while (1) {
         vTaskDelay(period);
 
-        // Take the most conservative view: the driest sensor governs.
+        // manual override check
+        bool manual = false;
+        bool manual_open = false;
+
+        if (g_ctrl_mutex) xSemaphoreTake(g_ctrl_mutex, portMAX_DELAY);
+        uint32_t now = (uint32_t)esp_log_timestamp();
+        if (g_manual_active) {
+            if ((int32_t)(g_manual_until_ms - now) > 0) {
+                manual = true;
+                manual_open = g_manual_open;
+            } else {
+                g_manual_active = false; // expired
+            }
+        }
+        if (g_ctrl_mutex) xSemaphoreGive(g_ctrl_mutex);
+
+        if (manual) {
+            if (manual_open != g_valve_open) valve_set(manual_open);
+            vTaskDelay(pdMS_TO_TICKS(100)); // short tick; skip auto logic
+            continue;
+        }
+
+        // chekc moisture levels, take driest
         float min_dryness = 1.0f;
         xSemaphoreTake(g_sensors_mutex, portMAX_DELAY);
         for (int i = 0; i < ctx.num_sensors; ++i) {
@@ -138,6 +188,7 @@ void app_main(void){
     g_readings_q = xQueueCreate(32, sizeof(reading_t));
     g_sensors_mutex = xSemaphoreCreateMutex();
     configASSERT(g_readings_q && g_sensors_mutex);
+    g_ctrl_mutex = xSemaphoreCreateMutex();
     
     // network init
     wifi_init_ap(); // default ip: 192.168.4.1

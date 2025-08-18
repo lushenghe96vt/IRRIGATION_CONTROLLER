@@ -12,26 +12,30 @@
 #define TAG "HTTP_SERVER"
 
 // handles provided in main
-extern QueueHandle_t     g_readings_q;
+extern QueueHandle_t g_readings_q;
 extern SemaphoreHandle_t g_sensors_mutex;
 
 // matches struct in main
 typedef struct {
-    int       id;
-    int       raw_level;
-    float     dryness_level;
-    uint32_t  ts_ms;
+    int id;
+    int raw_level;
+    float dryness_level;
+    uint32_t ts_ms;
 } reading_t;
+
+// manaul override for valve control
+extern void control_set_manual(bool on, uint32_t seconds);
+extern void control_set_auto(void);
 
 // websocket client management
 #ifndef MAX_WS_CLIENTS
 #define MAX_WS_CLIENTS 8
 #endif
 
-static httpd_handle_t     s_server     = NULL;
-static int                s_ws_fds[MAX_WS_CLIENTS];
-static size_t             s_ws_n       = 0;
-static SemaphoreHandle_t  s_ws_lock    = NULL;
+static httpd_handle_t s_server = NULL;
+static int s_ws_fds[MAX_WS_CLIENTS];
+static size_t s_ws_n = 0;
+static SemaphoreHandle_t s_ws_lock = NULL;
 
 static inline void ws_lock(void)   { if (s_ws_lock) xSemaphoreTake(s_ws_lock, portMAX_DELAY); }
 static inline void ws_unlock(void) { if (s_ws_lock) xSemaphoreGive(s_ws_lock); }
@@ -161,18 +165,24 @@ static esp_err_t web_index_handler(httpd_req_t *req) {
     static const char html[] =
         "<!doctype html><meta charset=utf-8>"
         "<h1>Irrigation Controller</h1>"
-        "<p>Live data below (via WebSocket). Fallback: <a href='/data'>/data</a></p>"
-        "<pre id=out>connecting…</pre>"
+        "<p><a href='/data'>/data</a> (JSON)</p>"
+        "<label>Seconds: <input id='sec' type='number' value='15' min='1' max='3600'></label>"
+        "<div style='margin-top:8px'>"
+        "<button onclick='send(true)'>Manual ON</button> "
+        "<button onclick='send(false)'>Manual OFF</button> "
+        "<button onclick='autoMode()'>Auto</button>"
+        "</div>"
+        "<pre id='out'></pre>"
         "<script>"
         "const out=document.getElementById('out');"
-        "const p=location.protocol==='https:'?'wss':'ws';"
-        "const ws=new WebSocket(p+'://'+location.host+'/ws');"
-        "ws.onopen=()=>out.textContent='(connected) waiting for data…';"
-        "ws.onmessage=e=>{try{out.textContent=JSON.stringify(JSON.parse(e.data),null,2);}catch(_){out.textContent=e.data;}};"
-        "ws.onclose=()=>out.textContent+='\\n(disconnected)';"
+        "function send(on){const s=+document.getElementById(\"sec\").value||15;"
+        " fetch(\"/override\",{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},"
+        " body:JSON.stringify({on:on,seconds:s})}).then(r=>r.text()).then(t=>out.textContent=t);}"
+        "function autoMode(){fetch(\"/override\",{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},"
+        " body:JSON.stringify({mode:\"auto\"})}).then(r=>r.text()).then(t=>out.textContent=t);}"
         "</script>";
-     httpd_resp_set_type(req, "text/html");
-     return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
+    httpd_resp_set_type(req, "text/html");
+    return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t web_data_handler(httpd_req_t *req) {
@@ -244,6 +254,38 @@ static esp_err_t ws_handler(httpd_req_t *req) {
     return ret;
 }
 
+static esp_err_t override_post_handler(httpd_req_t *req) {
+    char buf[128];
+    int len = httpd_req_recv(req, buf, MIN(req->content_len, (int)sizeof(buf) - 1));
+    if (len <= 0) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "empty body");
+    buf[len] = '\0';
+
+    cJSON *root = cJSON_Parse(buf);
+    if (!root) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "bad json");
+
+    cJSON *mode = cJSON_GetObjectItem(root, "mode");
+    if (cJSON_IsString(mode) && strcmp(mode->valuestring, "auto") == 0) {
+        control_set_auto();
+        cJSON_Delete(root);
+        return httpd_resp_sendstr(req, "OK");
+    }
+
+    cJSON *on      = cJSON_GetObjectItem(root, "on");
+    cJSON *seconds = cJSON_GetObjectItem(root, "seconds");
+    if (!cJSON_IsBool(on) || !cJSON_IsNumber(seconds)) {
+        cJSON_Delete(root);
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "need {on:bool,seconds:number} or {mode:\"auto\"}");
+    }
+
+    int sec = seconds->valueint;
+    if (sec < 1) sec = 1;
+    if (sec > 3600) sec = 3600; // clamp to 1 hour max
+
+    control_set_manual(cJSON_IsTrue(on), (uint32_t)sec);
+    cJSON_Delete(root);
+    return httpd_resp_sendstr(req, "OK");
+}
+
 // bootstrap HTTP server
 esp_err_t start_http_server(SensorContext *ctx) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -287,6 +329,14 @@ esp_err_t start_http_server(SensorContext *ctx) {
         .is_websocket = true
     };
     httpd_register_uri_handler(server, &ws_uri);
+
+    httpd_uri_t override_uri = {
+    .uri      = "/override",
+    .method   = HTTP_POST,
+    .handler  = override_post_handler,
+    .user_ctx = ctx
+    };
+    httpd_register_uri_handler(server, &override_uri);
     
     ESP_LOGI(TAG, "HTTP server started");
     return ESP_OK;
