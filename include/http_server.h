@@ -7,3 +7,4 @@
 #include "SensorContext.h"
 
 esp_err_t start_http_server(SensorContext *ctx);
+void http_ws_broadcast_snapshot(SensorContext *ctx);

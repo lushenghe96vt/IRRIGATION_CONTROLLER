@@ -96,3 +96,7 @@
 - need to re order wires?
 - need to reconfigure output to relay from 3V3 to a gpio output pin in order to power board with battery in future
 
+08/18/2025
+- configured websockets, everything works
+- changed relay power to D5 from 3v3
+- implemented button on webpage for manual override

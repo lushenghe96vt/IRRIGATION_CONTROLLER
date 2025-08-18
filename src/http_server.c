@@ -1,5 +1,6 @@
 #include <string.h>
 #include <sys/param.h>
+#include <stdlib.h>
 
 #include "http_server.h"
 #include "esp_http_server.h"
@@ -22,6 +23,93 @@ typedef struct {
     uint32_t  ts_ms;
 } reading_t;
 
+// websocket client management
+#ifndef MAX_WS_CLIENTS
+#define MAX_WS_CLIENTS 8
+#endif
+
+static httpd_handle_t     s_server     = NULL;
+static int                s_ws_fds[MAX_WS_CLIENTS];
+static size_t             s_ws_n       = 0;
+static SemaphoreHandle_t  s_ws_lock    = NULL;
+
+static inline void ws_lock(void)   { if (s_ws_lock) xSemaphoreTake(s_ws_lock, portMAX_DELAY); }
+static inline void ws_unlock(void) { if (s_ws_lock) xSemaphoreGive(s_ws_lock); }
+
+static void ws_add_fd(int fd) {
+    ws_lock();
+    for (size_t i = 0; i < s_ws_n; ++i) if (s_ws_fds[i] == fd) { ws_unlock(); return; }
+    if (s_ws_n < MAX_WS_CLIENTS) s_ws_fds[s_ws_n++] = fd;
+    ws_unlock();
+}
+
+static void ws_remove_fd(int fd) {
+    ws_lock();
+    for (size_t i = 0; i < s_ws_n; ++i) {
+        if (s_ws_fds[i] == fd) {
+            s_ws_fds[i] = s_ws_fds[s_ws_n - 1];
+            s_ws_n--;
+            break;
+        }
+    }
+    ws_unlock();
+}
+
+/* Build snapshot JSON from ctx into out buffer. Returns length written. */
+static size_t build_snapshot_json(SensorContext *ctx, char *out, size_t out_sz) {
+    size_t pos = 0;
+    if (!out_sz) return 0;
+    out[pos++] = '[';
+
+    xSemaphoreTake(g_sensors_mutex, portMAX_DELAY);
+    for (int i = 0; i < ctx->num_sensors; ++i) {
+        int n = snprintf(out + pos, (pos < out_sz ? out_sz - pos : 0),
+                         "%s{\"id\":%d,\"raw_level\":%d,\"dryness_level\":%.3f}",
+                         (i ? "," : ""),
+                         ctx->sensors[i].id,
+                         ctx->sensors[i].raw_level,
+                         ctx->sensors[i].dryness_level);
+        if (n < 0) n = 0;
+        pos += (size_t)n;
+        if (pos >= out_sz) break;
+    }
+    xSemaphoreGive(g_sensors_mutex);
+
+    if (pos + 2 <= out_sz) { out[pos++] = ']'; out[pos] = '\0'; }
+    else { out[out_sz - 2] = ']'; out[out_sz - 1] = '\0'; pos = out_sz - 1; }
+    return pos;
+}
+
+/* Public: broadcast current ctx snapshot to all WS clients. Safe to call from tasks. */
+void http_ws_broadcast_snapshot(SensorContext *ctx) {
+    if (!s_server || !s_ws_n) return;
+
+    char snap[1024];
+    build_snapshot_json(ctx, snap, sizeof(snap));
+
+    httpd_ws_frame_t frame = {
+        .type    = HTTPD_WS_TYPE_TEXT,
+        .payload = (uint8_t *)snap,
+        .len     = strlen(snap)
+    };
+
+    /* Send asynchronously using server handle + socket fd */
+    ws_lock();
+    /* Make a copy of the fds so we can modify list if a send fails */
+    int fds[MAX_WS_CLIENTS]; size_t n = s_ws_n;
+    for (size_t i = 0; i < n; ++i) fds[i] = s_ws_fds[i];
+    ws_unlock();
+
+    for (size_t i = 0; i < n; ++i) {
+        esp_err_t r = httpd_ws_send_frame_async(s_server, fds[i], &frame);
+        if (r != ESP_OK) {
+            ESP_LOGW(TAG, "ws send failed fd=%d err=%d; removing client", fds[i], (int)r);
+            ws_remove_fd(fds[i]);
+        }
+    }
+}
+
+// Handlers
 esp_err_t moisture_post_handler(httpd_req_t * req) {
     SensorContext *ctx = (SensorContext *)req->user_ctx;
 
@@ -73,13 +161,18 @@ static esp_err_t web_index_handler(httpd_req_t *req) {
     static const char html[] =
         "<!doctype html><meta charset=utf-8>"
         "<h1>Irrigation Controller</h1>"
-        "<ul>"
-        "<li><a href='/data'>/data</a> – current sensors JSON</li>"
-        "</ul>"
-        "<p>Nodes POST JSON to <code>/moisture</code> like "
-        "<code>{\"id\":1,\"raw_level\":1234,\"dryness_level\":0.42}</code>.</p>";
-    httpd_resp_set_type(req, "text/html");
-    return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
+        "<p>Live data below (via WebSocket). Fallback: <a href='/data'>/data</a></p>"
+        "<pre id=out>connecting…</pre>"
+        "<script>"
+        "const out=document.getElementById('out');"
+        "const p=location.protocol==='https:'?'wss':'ws';"
+        "const ws=new WebSocket(p+'://'+location.host+'/ws');"
+        "ws.onopen=()=>out.textContent='(connected) waiting for data…';"
+        "ws.onmessage=e=>{try{out.textContent=JSON.stringify(JSON.parse(e.data),null,2);}catch(_){out.textContent=e.data;}};"
+        "ws.onclose=()=>out.textContent+='\\n(disconnected)';"
+        "</script>";
+     httpd_resp_set_type(req, "text/html");
+     return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
 }
 
 static esp_err_t web_data_handler(httpd_req_t *req) {
@@ -103,12 +196,64 @@ static esp_err_t web_data_handler(httpd_req_t *req) {
     return httpd_resp_sendstr_chunk(req, NULL);
 }
 
+
+// websocket route
+
+static esp_err_t ws_handler(httpd_req_t *req) {
+    SensorContext *ctx = (SensorContext *)req->user_ctx;
+
+    if (req->method == HTTP_GET) {
+        /* handshake done; remember client and push one snapshot */
+        ws_add_fd(httpd_req_to_sockfd(req));
+
+        char snap[1024];
+        build_snapshot_json(ctx, snap, sizeof(snap));
+        httpd_ws_frame_t frame = {
+            .type    = HTTPD_WS_TYPE_TEXT,
+            .payload = (uint8_t *)snap,
+            .len     = strlen(snap)
+        };
+        return httpd_ws_send_frame(req, &frame);
+    }
+
+    /* For any incoming message, just reply with a fresh snapshot. */
+    httpd_ws_frame_t in = { .type = HTTPD_WS_TYPE_TEXT };
+    esp_err_t ret = httpd_ws_recv_frame(req, &in, 0); // get length
+    if (ret != ESP_OK) return ret;
+
+    uint8_t *buf = NULL;
+    if (in.len) {
+        buf = (uint8_t *)malloc(in.len + 1);
+        if (!buf) return ESP_ERR_NO_MEM;
+        in.payload = buf;
+        ret = httpd_ws_recv_frame(req, &in, in.len);
+        if (ret != ESP_OK) { free(buf); return ret; }
+        buf[in.len] = '\0';
+    }
+
+    char snap[1024];
+    build_snapshot_json(ctx, snap, sizeof(snap));
+    httpd_ws_frame_t out = {
+        .type    = HTTPD_WS_TYPE_TEXT,
+        .payload = (uint8_t *)snap,
+        .len     = strlen(snap)
+    };
+    ret = httpd_ws_send_frame(req, &out);
+
+    if (buf) free(buf);
+    return ret;
+}
+
+// bootstrap HTTP server
 esp_err_t start_http_server(SensorContext *ctx) {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     httpd_handle_t server = NULL;
 
     esp_err_t ret = httpd_start(&server, &config);
     if (ret != ESP_OK) return ret;
+
+    s_server = server;
+    if (!s_ws_lock) s_ws_lock = xSemaphoreCreateMutex();
 
     httpd_uri_t moisture_uri = {
         .uri = "/moisture", // posts to ip_address/moisture
@@ -133,6 +278,15 @@ esp_err_t start_http_server(SensorContext *ctx) {
     .user_ctx  = ctx
     };
     httpd_register_uri_handler(server, &data_uri);
+
+    httpd_uri_t ws_uri = {
+        .uri          = "/ws",
+        .method       = HTTP_GET,
+        .handler      = ws_handler,
+        .user_ctx     = ctx,
+        .is_websocket = true
+    };
+    httpd_register_uri_handler(server, &ws_uri);
     
     ESP_LOGI(TAG, "HTTP server started");
     return ESP_OK;

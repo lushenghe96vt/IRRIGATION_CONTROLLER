@@ -17,7 +17,8 @@
 #include "wifi_manager.h"
 #include "SensorContext.h"
 
-#define RELAY_OUT_D2 2                  // relay power pin  
+#define RELAY_OUT_D2 2                  // relay signal pin
+#define RELAY_POWER_D5 5                // relay power pin
 #define MOISTURE_OUT_D4 4               // sensor power pin
 #define MOISTURE_IN_D32 ADC1_CHANNEL_4  // GPIO32 = ADC1_CHANNEL_4
 
@@ -55,6 +56,10 @@ static float g_thresh_high = 0.45f; // open when average rises above 25% -------
 static bool  g_valve_open = false;
 
 static inline void valve_set(bool open){
+    //gpio_set_direction(RELAY_POWER_D5, GPIO_MODE_OUTPUT);
+    gpio_set_direction(RELAY_OUT_D2, GPIO_MODE_OUTPUT);
+    //gpio_set_level(RELAY_POWER_D5, open ? 1 : 0);
+    //vTaskDelay(pdMS_TO_TICKS(200)); // give relay time to power on, then swtich
     gpio_set_level(RELAY_OUT_D2, open ? 1 : 0);
     g_valve_open = open;
     ESP_LOGI(TAG, "Valve -> %s", open ? "OPEN" : "CLOSED");
@@ -63,15 +68,16 @@ static inline void valve_set(bool open){
 // ingest task
 static void ingest_task(void *arg) {
     reading_t r;
-    while (1) {
-        if (xQueueReceive(g_readings_q, &r, portMAX_DELAY) == pdTRUE) {
-            if (r.id >= 1 && r.id <= ctx.num_sensors) {
-                xSemaphoreTake(g_sensors_mutex, portMAX_DELAY);
-                MoistureSensor *s = &ctx.sensors[r.id - 1];
-                s->raw_level = r.raw_level;
-                s->dryness_level = r.dryness_level;
-                xSemaphoreGive(g_sensors_mutex);
-            }
+    while (xQueueReceive(g_readings_q, &r, portMAX_DELAY) == pdTRUE) {
+        if (r.id >= 1 && r.id <= ctx.num_sensors) {
+            xSemaphoreTake(g_sensors_mutex, portMAX_DELAY);
+            MoistureSensor *s = &ctx.sensors[r.id - 1];
+            s->raw_level = r.raw_level;
+            s->dryness_level = r.dryness_level;
+            xSemaphoreGive(g_sensors_mutex);
+            
+            // push to ws client
+            http_ws_broadcast_snapshot(&ctx);
         }
     }
 }
@@ -126,7 +132,7 @@ void app_main(void){
 
     // sensor inits
     moisture_sensor_init(&sensors[0], MOISTURE_IN_D32, MOISTURE_OUT_D4, SENSOR_ID_1);
-    moisture_sensor_init(&sensors[1], MOISTURE_IN_D32, MOISTURE_OUT_D4, SENSOR_ID_2);
+    // moisture_sensor_init(&sensors[1], MOISTURE_IN_D32, MOISTURE_OUT_D4, SENSOR_ID_2);
 
     // rtos primitives
     g_readings_q = xQueueCreate(32, sizeof(reading_t));
