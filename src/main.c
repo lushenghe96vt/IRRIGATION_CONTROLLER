@@ -41,7 +41,7 @@ typedef struct {
 
 static MoistureSensor sensors[NUM_SENSORS];
 
-SensorContext ctx = {
+static SensorContext ctx = {
     .sensors = sensors,
     .num_sensors = NUM_SENSORS
 };
@@ -52,9 +52,9 @@ SemaphoreHandle_t g_sensors_mutex = NULL;
 
 // valve control
 static const char *TAG = "APP";
-static float g_thresh_low = 0.25f; // open when average dips below 10%
-static float g_thresh_high = 0.45f; // open when average rises above 25% -----------experimental values-------------
-static bool  g_valve_open = false;
+static float g_thresh_low = 0.25f; // open when average dips below 25%
+static float g_thresh_high = 0.45f; // open when average rises above 45% -----------experimental values-------------
+bool g_valve_open = false; // used in http_server.c
 
 // manual override
 static SemaphoreHandle_t g_ctrl_mutex;
@@ -78,8 +78,8 @@ void control_set_manual(bool on, uint32_t seconds) {
     uint32_t now = (uint32_t)esp_log_timestamp();
     if (!g_ctrl_mutex) g_ctrl_mutex = xSemaphoreCreateMutex();
     xSemaphoreTake(g_ctrl_mutex, portMAX_DELAY);
-    g_manual_active   = true;
-    g_manual_open     = on;
+    g_manual_active = true;
+    g_manual_open = on;
     g_manual_until_ms = now + seconds * 1000u;
     xSemaphoreGive(g_ctrl_mutex);
     ESP_LOGI("APP", "Manual %s for%" PRIu32 " s", on ? "ON" : "OFF", seconds);
@@ -142,17 +142,16 @@ static void control_task(void *arg) {
         }
 
         // chekc moisture levels, take driest
-        float min_dryness = 1.0f;
+        float avg_dryness = 0.0f;
         xSemaphoreTake(g_sensors_mutex, portMAX_DELAY);
         for (int i = 0; i < ctx.num_sensors; ++i) {
-            if (ctx.sensors[i].dryness_level < min_dryness) {
-                min_dryness = ctx.sensors[i].dryness_level;
-            }
+            avg_dryness += ctx.sensors[i].dryness_level;
         }
+        avg_dryness /= ctx.num_sensors; // average dryness level
         xSemaphoreGive(g_sensors_mutex);
 
-        if (g_valve_open && min_dryness < g_thresh_low)  valve_set(false);
-        if (!g_valve_open && min_dryness > g_thresh_high) valve_set(true);
+        if (g_valve_open && avg_dryness < g_thresh_low)  valve_set(false);
+        if (!g_valve_open && avg_dryness > g_thresh_high) valve_set(true);
     }
 }
 

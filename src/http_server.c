@@ -3,6 +3,7 @@
 #include <stdlib.h>
 
 #include "http_server.h"
+#include "esp_timer.h"
 #include "esp_http_server.h"
 #include "esp_log.h"
 #include "cJSON.h"
@@ -47,6 +48,20 @@ static void ws_add_fd(int fd) {
     ws_unlock();
 }
 
+// valve state variables
+extern bool g_valve_open;
+static bool s_last_valve = false;
+static esp_timer_handle_t s_valve_watch_timer = NULL;
+
+static void valve_watch_cb(void *arg) {
+    SensorContext *ctx = (SensorContext *)arg;
+    bool cur = g_valve_open;
+    if (cur != s_last_valve) {
+        s_last_valve = cur;
+        http_ws_broadcast_snapshot(ctx);  // push immediately
+    }
+}
+
 static void ws_remove_fd(int fd) {
     ws_lock();
     for (size_t i = 0; i < s_ws_n; ++i) {
@@ -59,61 +74,100 @@ static void ws_remove_fd(int fd) {
     ws_unlock();
 }
 
-/* Build snapshot JSON from ctx into out buffer. Returns length written. */
+// build snapshot JSON from ctx into out buffer
 static size_t build_snapshot_json(SensorContext *ctx, char *out, size_t out_sz) {
     size_t pos = 0;
-    if (!out_sz) return 0;
-    out[pos++] = '[';
+    bool truncated = false;
+    if (out_sz == 0) return 0;
+
+    int n = snprintf(out + pos, (pos < out_sz ? out_sz - pos : 0), "{\"valve_open\":%s,\"sensors\":[", g_valve_open ? "true" : "false");
+    if (n < 0) { n = 0; }
+    pos += (size_t)n;
+    if (pos >= out_sz) truncated = true;
 
     xSemaphoreTake(g_sensors_mutex, portMAX_DELAY);
-    for (int i = 0; i < ctx->num_sensors; ++i) {
-        int n = snprintf(out + pos, (pos < out_sz ? out_sz - pos : 0),
-                         "%s{\"id\":%d,\"raw_level\":%d,\"dryness_level\":%.3f}",
-                         (i ? "," : ""),
-                         ctx->sensors[i].id,
-                         ctx->sensors[i].raw_level,
-                         ctx->sensors[i].dryness_level);
+    for (int i = 0; !truncated && i < ctx->num_sensors; ++i) {
+        n = snprintf(out + pos, (pos < out_sz ? out_sz - pos : 0), "%s{\"id\":%d,\"raw_level\":%d,\"dryness_level\":%.3f}",
+                    (i ? "," : ""),
+                    ctx->sensors[i].id,
+                    ctx->sensors[i].raw_level,
+                    ctx->sensors[i].dryness_level);
         if (n < 0) n = 0;
         pos += (size_t)n;
-        if (pos >= out_sz) break;
+        if (pos >= out_sz) truncated = true;
     }
     xSemaphoreGive(g_sensors_mutex);
 
-    if (pos + 2 <= out_sz) { out[pos++] = ']'; out[pos] = '\0'; }
-    else { out[out_sz - 2] = ']'; out[out_sz - 1] = '\0'; pos = out_sz - 1; }
+    if (!truncated) {
+        n = snprintf(out + pos, (pos < out_sz ? out_sz - pos : 0), "]}");
+        if (n < 0) n = 0;
+        pos += (size_t)n;
+        if (pos >= out_sz) truncated = true;
+    }
+
+    if (truncated) {
+        if (out_sz) { out[out_sz - 1] = '\0'; pos = out_sz - 1; }
+        else pos = 0;
+    }
+    
     return pos;
 }
 
-/* Public: broadcast current ctx snapshot to all WS clients. Safe to call from tasks. */
+typedef struct {
+    char  *data;
+    size_t len;
+    int    fds[MAX_WS_CLIENTS];
+    size_t n;
+} ws_bcast_t;
+
+static void ws_bcast_send(void *arg) {
+    ws_bcast_t *b = (ws_bcast_t *)arg;
+    httpd_ws_frame_t frame = {
+        .type    = HTTPD_WS_TYPE_TEXT,
+        .payload = (uint8_t *)b->data,
+        .len     = b->len
+    };
+    for (size_t i = 0; i < b->n; ++i) {
+        esp_err_t r = httpd_ws_send_frame_async(s_server, b->fds[i], &frame);
+        if (r != ESP_OK) {
+            ESP_LOGW(TAG, "ws send failed fd=%d err=%d; removing client", b->fds[i], (int)r);
+            ws_remove_fd(b->fds[i]);
+        }
+    }
+    free(b->data);
+    free(b);
+}
+
+// broadcast current ctx snapshot to all WS clients
 void http_ws_broadcast_snapshot(SensorContext *ctx) {
     if (!s_server || !s_ws_n) return;
 
-    char snap[1024];
-    build_snapshot_json(ctx, snap, sizeof(snap));
+    char tmp[1024];
+    size_t len = build_snapshot_json(ctx, tmp, sizeof(tmp));
+    char *copy = (char *)malloc(len + 1);
+    if (!copy) return;
+    memcpy(copy, tmp, len + 1);
 
-    httpd_ws_frame_t frame = {
-        .type    = HTTPD_WS_TYPE_TEXT,
-        .payload = (uint8_t *)snap,
-        .len     = strlen(snap)
-    };
+    ws_bcast_t *b = (ws_bcast_t *)calloc(1, sizeof(ws_bcast_t));
+    if (!b) { free(copy); return; }
+    b->data = copy;
+    b->len  = strlen(copy);
 
-    /* Send asynchronously using server handle + socket fd */
     ws_lock();
-    /* Make a copy of the fds so we can modify list if a send fails */
-    int fds[MAX_WS_CLIENTS]; size_t n = s_ws_n;
-    for (size_t i = 0; i < n; ++i) fds[i] = s_ws_fds[i];
+    b->n = s_ws_n;
+    for (size_t i = 0; i < b->n; ++i) b->fds[i] = s_ws_fds[i];
     ws_unlock();
 
-    for (size_t i = 0; i < n; ++i) {
-        esp_err_t r = httpd_ws_send_frame_async(s_server, fds[i], &frame);
-        if (r != ESP_OK) {
-            ESP_LOGW(TAG, "ws send failed fd=%d err=%d; removing client", fds[i], (int)r);
-            ws_remove_fd(fds[i]);
-        }
+    // Optional debug: confirm broadcasts fire
+    ESP_LOGI(TAG, "WS broadcast: clients=%u", (unsigned)b->n);
+
+    if (httpd_queue_work(s_server, ws_bcast_send, b) != ESP_OK) {
+        free(copy);
+        free(b);
     }
 }
 
-// Handlers
+// handlers
 esp_err_t moisture_post_handler(httpd_req_t * req) {
     SensorContext *ctx = (SensorContext *)req->user_ctx;
 
@@ -164,22 +218,48 @@ esp_err_t moisture_post_handler(httpd_req_t * req) {
 static esp_err_t web_index_handler(httpd_req_t *req) {
     static const char html[] =
         "<!doctype html><meta charset=utf-8>"
+        "<style>"
+        "body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:20px}"
+        "#valve{display:inline-block;padding:14px 18px;border-radius:12px;font-weight:700;font-size:28px}"
+        ".open{background:#e6ffec;color:#0a7a57;border:1px solid #a8f5c5}"
+        ".closed{background:#ffe8e8;color:#b00020;border:1px solid #ffbcbc}"
+        "label,input,button{font-size:16px}"
+        "button{margin-right:8px}"
+        "pre{background:#f6f8fa;padding:10px;border-radius:8px;overflow:auto}"
+        "</style>"
         "<h1>Irrigation Controller</h1>"
-        "<p><a href='/data'>/data</a> (JSON)</p>"
+        "<div id='valve' class='closed'>VALVE: CLOSED</div>"
+        "<p style='margin-top:12px'><a href='/data'>/data</a> (JSON)</p>"
         "<label>Seconds: <input id='sec' type='number' value='15' min='1' max='3600'></label>"
         "<div style='margin-top:8px'>"
-        "<button onclick='send(true)'>Manual ON</button> "
-        "<button onclick='send(false)'>Manual OFF</button> "
+        "<button onclick='send(true)'>OPEN</button>"
+        "<button onclick='send(false)'>CLOSE</button>"
         "<button onclick='autoMode()'>Auto</button>"
         "</div>"
-        "<pre id='out'></pre>"
+        "<pre id='out'>connecting…</pre>"
         "<script>"
+        "const badge=document.getElementById('valve');"
         "const out=document.getElementById('out');"
-        "function send(on){const s=+document.getElementById(\"sec\").value||15;"
-        " fetch(\"/override\",{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},"
-        " body:JSON.stringify({on:on,seconds:s})}).then(r=>r.text()).then(t=>out.textContent=t);}"
-        "function autoMode(){fetch(\"/override\",{method:\"POST\",headers:{\"Content-Type\":\"application/json\"},"
-        " body:JSON.stringify({mode:\"auto\"})}).then(r=>r.text()).then(t=>out.textContent=t);}"
+        "function renderValve(open){"
+          "badge.textContent = open ? 'VALVE: OPEN' : 'VALVE: CLOSED';"
+          "badge.className = open ? 'open' : 'closed';"
+        "}"
+        "function send(on){const s=+document.getElementById('sec').value||15;"
+          "fetch('/override',{method:'POST',headers:{'Content-Type':'application/json'},"
+          "body:JSON.stringify({on:on,seconds:s})}).then(r=>r.text()).then(t=>out.textContent=t);}"
+        "function autoMode(){fetch('/override',{method:'POST',headers:{'Content-Type':'application/json'},"
+          "body:JSON.stringify({mode:'auto'})}).then(r=>r.text()).then(t=>out.textContent=t);}"
+        "const proto = location.protocol==='https:'?'wss':'ws';"
+        "const ws = new WebSocket(proto+'://'+location.host+'/ws');"
+        "ws.onopen = ()=> out.textContent='(connected)';"
+        "ws.onmessage = e=>{"
+          "try{const msg=JSON.parse(e.data);"
+              "if(typeof msg.valve_open==='boolean') renderValve(msg.valve_open);"
+              "if(Array.isArray(msg.sensors)) out.textContent = JSON.stringify(msg.sensors,null,2);"
+              "else out.textContent = e.data;"
+          "}catch(_){ out.textContent = e.data; }"
+        "};"
+        "ws.onclose = ()=> out.textContent+='\\n(disconnected)';"
         "</script>";
     httpd_resp_set_type(req, "text/html");
     return httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
@@ -329,6 +409,18 @@ esp_err_t start_http_server(SensorContext *ctx) {
         .is_websocket = true
     };
     httpd_register_uri_handler(server, &ws_uri);
+
+    // start valve watch timer
+    s_last_valve = g_valve_open;
+    if (!s_valve_watch_timer) {
+        const esp_timer_create_args_t targs = {
+            .callback = valve_watch_cb,
+            .arg = ctx,
+            .name = "valve_watch"
+        };
+        ESP_ERROR_CHECK(esp_timer_create(&targs, &s_valve_watch_timer));
+        ESP_ERROR_CHECK(esp_timer_start_periodic(s_valve_watch_timer, 200 * 1000)); // 200 ms
+    }
 
     httpd_uri_t override_uri = {
     .uri      = "/override",

@@ -100,4 +100,5 @@
 - configured websockets, everything works
 - changed relay power to D5 from 3v3
 - implemented button on webpage for manual override
-- should clean up webpage to display whether the valve is open or closed and make it look prettier?
+- changed dryness to take average
+- added a display for whether the valve is open or closed and made webpage look prettier
